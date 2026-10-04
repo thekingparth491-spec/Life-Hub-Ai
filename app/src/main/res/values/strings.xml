@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">LifeHub AI</string>
+    <string name="app_full_name">LifeHub AI – All in One</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_categories">Categories</string>
+    <string name="nav_ai">AI Assistant</string>
+    <string name="nav_favorites">Favorites</string>
+    <string name="nav_settings">Settings</string>
+    <string name="search_placeholder">Search 100 tools, categories, notes...</string>
+    <string name="all_tools">All Tools</string>
+    <string name="recent_tools">Recently Used</string>
+    <string name="my_favorites">My Favorites</string>
+    <string name="quick_actions">Quick Actions</string>
+    <string name="emergency_sos">Emergency SOS</string>
+    <string name="disclaimer_health">This app is for personal tracking and information only. It is not a medical device and does not provide medical diagnosis.</string>
+</resources>

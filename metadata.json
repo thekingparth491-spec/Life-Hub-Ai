@@ -1,0 +1,6 @@
+{
+  "name": "LifeHub AI – All in One",
+  "description": "Production-ready Android super app combining 100 tools across Daily Utilities, Finance, Phone, AI, Students, Family, Vehicle, Health, Safety, and Creative.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

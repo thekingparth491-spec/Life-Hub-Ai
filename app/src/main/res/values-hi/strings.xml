@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">LifeHub AI</string>
+    <string name="app_full_name">LifeHub AI – ऑल इन वन</string>
+    <string name="nav_home">होम</string>
+    <string name="nav_categories">श्रेणियां</string>
+    <string name="nav_ai">एआई सहायक</string>
+    <string name="nav_favorites">पसंदीदा</string>
+    <string name="nav_settings">सेटिंग्स</string>
+    <string name="search_placeholder">100 उपकरण, श्रेणियां और नोट्स खोजें...</string>
+    <string name="all_tools">सभी उपकरण</string>
+    <string name="recent_tools">हाल ही में उपयोग किए गए</string>
+    <string name="my_favorites">मेरे पसंदीदा</string>
+    <string name="quick_actions">त्वरित कार्य</string>
+    <string name="emergency_sos">आपातकालीन एसओएस</string>
+    <string name="disclaimer_health">यह ऐप केवल व्यक्तिगत ट्रैकिंग और जानकारी के लिए है। यह चिकित्सा उपकरण नहीं है।</string>
+</resources>
