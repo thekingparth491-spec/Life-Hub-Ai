@@ -92,14 +92,30 @@ fun HouseholdInventoryScreen(onBack: () -> Unit) {
 
 @Composable
 fun HomeMaintenanceScreen(onBack: () -> Unit) {
-    val alerts = listOf(
-        "AC Filter Cleaning" to "Due in 5 days • Recommended every 60 days",
-        "Water Purifier Sediment Filter" to "Due in 25 days • Recommended every 6 months",
-        "Chimney Deep Cleaning" to "Due in 40 days • Annual maintenance"
-    )
+    var alerts by remember {
+        mutableStateOf(
+            listOf(
+                "AC Filter Cleaning" to "Due in 5 days • Recommended every 60 days",
+                "Water Purifier Sediment Filter" to "Due in 25 days • Recommended every 6 months",
+                "Chimney Deep Cleaning" to "Due in 40 days • Annual maintenance"
+            )
+        )
+    }
+    var showDialog by remember { mutableStateOf(false) }
+    var taskName by remember { mutableStateOf("") }
+    var scheduleInterval by remember { mutableStateOf("") }
 
     Scaffold(
-        topBar = { LifeHubTopAppBar(title = "Home Maintenance Reminder", canNavigateBack = true, onNavigateBack = onBack) }
+        topBar = { LifeHubTopAppBar(title = "Home Maintenance Reminder", canNavigateBack = true, onNavigateBack = onBack) },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { showDialog = true },
+                icon = { Icon(Icons.Default.Add, contentDescription = "Add") },
+                text = { Text("Add Maintenance") },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            )
+        }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -109,19 +125,90 @@ fun HomeMaintenanceScreen(onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            alerts.forEach { (item, schedule) ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Maintenance Schedule (${alerts.size})", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                FilledTonalButton(onClick = { showDialog = true }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Add New", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+
+            if (alerts.isEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Text("No home maintenance reminders scheduled. Tap '+ Add New' to schedule.", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+
+            alerts.forEachIndexed { index, (item, schedule) ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(item, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                        Text(schedule, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                    Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(item, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                            Text(schedule, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                        }
+                        IconButton(onClick = {
+                            alerts = alerts.filterIndexed { i, _ -> i != index }
+                        }) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                        }
                     }
                 }
             }
         }
+    }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text("Add Maintenance Reminder") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = taskName,
+                        onValueChange = { taskName = it },
+                        label = { Text("Appliance / Maintenance Task") },
+                        placeholder = { Text("e.g. Water Tank Disinfection, Solar Panel Cleaning") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = scheduleInterval,
+                        onValueChange = { scheduleInterval = it },
+                        label = { Text("Schedule / Due Interval") },
+                        placeholder = { Text("e.g. Due in 15 days • Every 6 months") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (taskName.isNotBlank()) {
+                            val interval = if (scheduleInterval.isBlank()) "Due in 30 days • Periodic maintenance" else scheduleInterval.trim()
+                            alerts = alerts + (taskName.trim() to interval)
+                            taskName = ""
+                            scheduleInterval = ""
+                            showDialog = false
+                        }
+                    },
+                    enabled = taskName.isNotBlank()
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 

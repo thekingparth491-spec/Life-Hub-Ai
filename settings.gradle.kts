@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "LifeHub AI"
+rootProject.name = "LifeHub Supreme"
 
 include(":app")

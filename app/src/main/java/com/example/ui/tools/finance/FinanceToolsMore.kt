@@ -26,14 +26,33 @@ import kotlin.math.pow
 
 @Composable
 fun EMIReminderScreen(onBack: () -> Unit) {
-    val sampleEmis = listOf(
-        Triple("HDFC Home Loan", 24500.0, "5th of each month"),
-        Triple("Car Loan (SBI)", 8200.0, "10th of each month"),
-        Triple("Personal Gadget EMI", 2150.0, "15th of each month")
-    )
+    var emis by remember {
+        mutableStateOf(
+            listOf(
+                Triple("HDFC Home Loan", 24500.0, "5th of each month"),
+                Triple("Car Loan (SBI)", 8200.0, "10th of each month"),
+                Triple("Personal Gadget EMI", 2150.0, "15th of each month")
+            )
+        )
+    }
+    var showDialog by remember { mutableStateOf(false) }
+    var loanName by remember { mutableStateOf("") }
+    var amount by remember { mutableStateOf("") }
+    var dueDate by remember { mutableStateOf("") }
+
+    val totalEmi = emis.sumOf { it.second }
 
     Scaffold(
-        topBar = { LifeHubTopAppBar(title = "EMI Reminder", canNavigateBack = true, onNavigateBack = onBack) }
+        topBar = { LifeHubTopAppBar(title = "EMI Reminder", canNavigateBack = true, onNavigateBack = onBack) },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { showDialog = true },
+                icon = { Icon(Icons.Default.Add, contentDescription = "Add") },
+                text = { Text("Add EMI") },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            )
+        }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -41,11 +60,42 @@ fun EMIReminderScreen(onBack: () -> Unit) {
                 .padding(padding)
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text("Active Loan EMI Repayments", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Text("Total Monthly EMI Commitment", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text("₹${"%.0f".format(totalEmi)}", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                }
+            }
 
-            sampleEmis.forEach { (name, amount, due) ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Active Loan EMIs (${emis.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                FilledTonalButton(onClick = { showDialog = true }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Add New", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+
+            if (emis.isEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Text("No EMIs scheduled. Tap '+ Add New' to track loan repayments.", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+
+            emis.forEachIndexed { index, (name, amt, due) ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -59,26 +109,102 @@ fun EMIReminderScreen(onBack: () -> Unit) {
                             Text(name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                             Text("Due: $due", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Text("₹${"%.0f".format(amount)}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text("₹${"%.0f".format(amt)}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        IconButton(onClick = {
+                            emis = emis.filterIndexed { i, _ -> i != index }
+                        }) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                        }
                     }
                 }
             }
         }
     }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text("Add Loan EMI Reminder") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = loanName,
+                        onValueChange = { loanName = it },
+                        label = { Text("Loan Title & Bank") },
+                        placeholder = { Text("e.g. Education Loan (SBI)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = amount,
+                        onValueChange = { amount = it },
+                        label = { Text("Monthly EMI (₹)") },
+                        placeholder = { Text("e.g. 6500") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = dueDate,
+                        onValueChange = { dueDate = it },
+                        label = { Text("Due Day / Schedule") },
+                        placeholder = { Text("e.g. 7th of each month") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val parsedAmt = amount.toDoubleOrNull() ?: 0.0
+                        if (loanName.isNotBlank()) {
+                            val due = if (dueDate.isBlank()) "Due on month end" else dueDate.trim()
+                            emis = emis + Triple(loanName.trim(), parsedAmt, due)
+                            loanName = ""
+                            amount = ""
+                            dueDate = ""
+                            showDialog = false
+                        }
+                    },
+                    enabled = loanName.isNotBlank()
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
 }
 
 @Composable
 fun SubscriptionTrackerScreen(onBack: () -> Unit) {
-    val subs = listOf(
-        Triple("Netflix Premium", 649.0, "Renews on 12th Oct"),
-        Triple("Spotify Duo", 149.0, "Renews on 18th Oct"),
-        Triple("Amazon Prime", 1499.0, "Annual • Renews 24 Jan"),
-        Triple("Google One Cloud (100GB)", 130.0, "Renews on 5th Oct")
-    )
-    val monthlyTotal = 649.0 + 149.0 + (1499.0 / 12) + 130.0
+    var subs by remember {
+        mutableStateOf(
+            listOf(
+                Triple("Netflix Premium", 649.0, "Renews on 12th Oct"),
+                Triple("Spotify Duo", 149.0, "Renews on 18th Oct"),
+                Triple("Amazon Prime", 1499.0, "Annual • Renews 24 Jan"),
+                Triple("Google One Cloud (100GB)", 130.0, "Renews on 5th Oct")
+            )
+        )
+    }
+    var showDialog by remember { mutableStateOf(false) }
+    var serviceName by remember { mutableStateOf("") }
+    var cost by remember { mutableStateOf("") }
+    var renewalCycle by remember { mutableStateOf("") }
+
+    val monthlyTotal = subs.sumOf { (name, price, cycle) ->
+        if (cycle.contains("Annual", ignoreCase = true)) price / 12 else price
+    }
 
     Scaffold(
-        topBar = { LifeHubTopAppBar(title = "Subscription Tracker", canNavigateBack = true, onNavigateBack = onBack) }
+        topBar = { LifeHubTopAppBar(title = "Subscription Tracker", canNavigateBack = true, onNavigateBack = onBack) },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { showDialog = true },
+                icon = { Icon(Icons.Default.Add, contentDescription = "Add") },
+                text = { Text("Add Subscription") },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            )
+        }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -99,9 +225,29 @@ fun SubscriptionTrackerScreen(onBack: () -> Unit) {
                 }
             }
 
-            Text("Active Subscriptions (${subs.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Active Subscriptions (${subs.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                FilledTonalButton(onClick = { showDialog = true }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Add New", style = MaterialTheme.typography.labelSmall)
+                }
+            }
 
-            subs.forEach { (name, price, cycle) ->
+            if (subs.isEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Text("No recurring subscriptions tracked. Tap '+ Add New' to track renewals.", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+
+            subs.forEachIndexed { index, (name, price, cycle) ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -116,10 +262,66 @@ fun SubscriptionTrackerScreen(onBack: () -> Unit) {
                             Text(cycle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text("₹${"%.0f".format(price)}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        IconButton(onClick = {
+                            subs = subs.filterIndexed { i, _ -> i != index }
+                        }) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                        }
                     }
                 }
             }
         }
+    }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text("Add Subscription Reminder") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = serviceName,
+                        onValueChange = { serviceName = it },
+                        label = { Text("Platform / Service Name") },
+                        placeholder = { Text("e.g. Disney+ Hotstar, YouTube Premium") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = cost,
+                        onValueChange = { cost = it },
+                        label = { Text("Recurring Cost (₹)") },
+                        placeholder = { Text("e.g. 299") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = renewalCycle,
+                        onValueChange = { renewalCycle = it },
+                        label = { Text("Renewal Date & Schedule") },
+                        placeholder = { Text("e.g. Renews on 28th each month") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val parsedCost = cost.toDoubleOrNull() ?: 0.0
+                        if (serviceName.isNotBlank()) {
+                            val cycle = if (renewalCycle.isBlank()) "Monthly renewal" else renewalCycle.trim()
+                            subs = subs + Triple(serviceName.trim(), parsedCost, cycle)
+                            serviceName = ""
+                            cost = ""
+                            renewalCycle = ""
+                            showDialog = false
+                        }
+                    },
+                    enabled = serviceName.isNotBlank()
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 

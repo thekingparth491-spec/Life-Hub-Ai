@@ -23,15 +23,32 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun StudyPlannerScreen(onBack: () -> Unit) {
-    val plan = listOf(
-        Triple("09:00 AM - 10:30 AM", "Advanced Algorithms", "Dynamic Programming problems"),
-        Triple("11:00 AM - 12:30 PM", "Database Systems", "ACID properties & normal forms"),
-        Triple("02:00 PM - 03:30 PM", "Computer Networks", "OSI model layers & TCP handshake"),
-        Triple("04:30 PM - 05:30 PM", "Revision & Quiz", "Solve 20 past mock questions")
-    )
+    var plan by remember {
+        mutableStateOf(
+            listOf(
+                Triple("09:00 AM - 10:30 AM", "Advanced Algorithms", "Dynamic Programming problems"),
+                Triple("11:00 AM - 12:30 PM", "Database Systems", "ACID properties & normal forms"),
+                Triple("02:00 PM - 03:30 PM", "Computer Networks", "OSI model layers & TCP handshake"),
+                Triple("04:30 PM - 05:30 PM", "Revision & Quiz", "Solve 20 past mock questions")
+            )
+        )
+    }
+    var showDialog by remember { mutableStateOf(false) }
+    var timeSlot by remember { mutableStateOf("") }
+    var subject by remember { mutableStateOf("") }
+    var topicDescription by remember { mutableStateOf("") }
 
     Scaffold(
-        topBar = { LifeHubTopAppBar(title = "Study Planner", canNavigateBack = true, onNavigateBack = onBack) }
+        topBar = { LifeHubTopAppBar(title = "Study Planner", canNavigateBack = true, onNavigateBack = onBack) },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { showDialog = true },
+                icon = { Icon(Icons.Default.Add, contentDescription = "Add") },
+                text = { Text("Add Study Slot") },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            )
+        }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -41,35 +58,130 @@ fun StudyPlannerScreen(onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text("Today's Revision Schedule", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Today's Revision Schedule (${plan.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                FilledTonalButton(onClick = { showDialog = true }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Add New", style = MaterialTheme.typography.labelSmall)
+                }
+            }
 
-            plan.forEach { (slot, subject, topic) ->
+            if (plan.isEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Text("No study sessions scheduled today. Tap '+ Add New' to plan your study slots.", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+
+            plan.forEachIndexed { index, (slot, subj, topic) ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(slot, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                        Text(subject, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(topic, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(slot, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                            Text(subj, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text(topic, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(onClick = {
+                            plan = plan.filterIndexed { i, _ -> i != index }
+                        }) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                        }
                     }
                 }
             }
         }
     }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text("Add Study Session") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = timeSlot,
+                        onValueChange = { timeSlot = it },
+                        label = { Text("Time Slot") },
+                        placeholder = { Text("e.g. 06:00 PM - 07:30 PM") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = subject,
+                        onValueChange = { subject = it },
+                        label = { Text("Subject / Course") },
+                        placeholder = { Text("e.g. Linear Algebra") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = topicDescription,
+                        onValueChange = { topicDescription = it },
+                        label = { Text("Topics & Goals") },
+                        placeholder = { Text("e.g. Chapter 4 Matrix Factorization practice") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (subject.isNotBlank()) {
+                            val slot = if (timeSlot.isBlank()) "Flexible Slot" else timeSlot.trim()
+                            val top = if (topicDescription.isBlank()) "Study & Problem Solving" else topicDescription.trim()
+                            plan = plan + Triple(slot, subject.trim(), top)
+                            timeSlot = ""
+                            subject = ""
+                            topicDescription = ""
+                            showDialog = false
+                        }
+                    },
+                    enabled = subject.isNotBlank()
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
 }
 
 @Composable
 fun ExamCountdownScreen(onBack: () -> Unit) {
-    val exams = listOf(
-        Triple("Operating Systems Midterms", "12 Days Left", "15 Oct 2026"),
-        Triple("Machine Learning Final Exam", "28 Days Left", "31 Oct 2026"),
-        Triple("Software Engineering Project Viva", "44 Days Left", "16 Nov 2026")
-    )
+    var exams by remember {
+        mutableStateOf(
+            listOf(
+                Triple("Operating Systems Midterms", "12 Days Left", "15 Oct 2026"),
+                Triple("Machine Learning Final Exam", "28 Days Left", "31 Oct 2026"),
+                Triple("Software Engineering Project Viva", "44 Days Left", "16 Nov 2026")
+            )
+        )
+    }
+    var showDialog by remember { mutableStateOf(false) }
+    var examTitle by remember { mutableStateOf("") }
+    var examDate by remember { mutableStateOf("") }
+    var daysLeft by remember { mutableStateOf("") }
 
     Scaffold(
-        topBar = { LifeHubTopAppBar(title = "Exam Countdown", canNavigateBack = true, onNavigateBack = onBack) }
+        topBar = { LifeHubTopAppBar(title = "Exam Countdown", canNavigateBack = true, onNavigateBack = onBack) },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { showDialog = true },
+                icon = { Icon(Icons.Default.Add, contentDescription = "Add") },
+                text = { Text("Add Exam") },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            )
+        }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -79,7 +191,29 @@ fun ExamCountdownScreen(onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            exams.forEach { (name, days, date) ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Upcoming Examinations (${exams.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                FilledTonalButton(onClick = { showDialog = true }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Add New", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+
+            if (exams.isEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Text("No exams added yet. Tap '+ Add New' to track exam countdowns.", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+
+            exams.forEachIndexed { index, (name, days, date) ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -94,10 +228,67 @@ fun ExamCountdownScreen(onBack: () -> Unit) {
                             Text("Scheduled: $date", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
                         }
                         Text(days, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        IconButton(onClick = {
+                            exams = exams.filterIndexed { i, _ -> i != index }
+                        }) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                        }
                     }
                 }
             }
         }
+    }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text("Add Exam Countdown") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = examTitle,
+                        onValueChange = { examTitle = it },
+                        label = { Text("Exam Name") },
+                        placeholder = { Text("e.g. Distributed Systems Final") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = examDate,
+                        onValueChange = { examDate = it },
+                        label = { Text("Date of Exam") },
+                        placeholder = { Text("e.g. 18 Nov 2026") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = daysLeft,
+                        onValueChange = { daysLeft = it },
+                        label = { Text("Countdown / Days Left") },
+                        placeholder = { Text("e.g. 24 Days Left") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (examTitle.isNotBlank()) {
+                            val dt = if (examDate.isBlank()) "Date announced soon" else examDate.trim()
+                            val count = if (daysLeft.isBlank()) "Upcoming" else if (!daysLeft.contains("Left")) "$daysLeft Left" else daysLeft.trim()
+                            exams = exams + Triple(examTitle.trim(), count, dt)
+                            examTitle = ""
+                            examDate = ""
+                            daysLeft = ""
+                            showDialog = false
+                        }
+                    },
+                    enabled = examTitle.isNotBlank()
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 
@@ -192,16 +383,32 @@ fun HomeworkTrackerScreen(onBack: () -> Unit) {
 
 @Composable
 fun ClassTimetableScreen(onBack: () -> Unit) {
-    val schedule = listOf(
-        "Monday" to "09:00 Data Structures • 11:00 Operating Systems • 02:00 Lab",
-        "Tuesday" to "10:00 Database Systems • 01:00 Computer Networks",
-        "Wednesday" to "09:00 Software Engineering • 11:00 AI Basics • 03:00 Seminar",
-        "Thursday" to "10:00 Cloud Computing • 02:00 Project Lab",
-        "Friday" to "09:00 Cyber Security • 11:00 Discrete Mathematics"
-    )
+    var schedule by remember {
+        mutableStateOf(
+            listOf(
+                "Monday" to "09:00 Data Structures • 11:00 Operating Systems • 02:00 Lab",
+                "Tuesday" to "10:00 Database Systems • 01:00 Computer Networks",
+                "Wednesday" to "09:00 Software Engineering • 11:00 AI Basics • 03:00 Seminar",
+                "Thursday" to "10:00 Cloud Computing • 02:00 Project Lab",
+                "Friday" to "09:00 Cyber Security • 11:00 Discrete Mathematics"
+            )
+        )
+    }
+    var showDialog by remember { mutableStateOf(false) }
+    var dayOfWeek by remember { mutableStateOf("") }
+    var classDetails by remember { mutableStateOf("") }
 
     Scaffold(
-        topBar = { LifeHubTopAppBar(title = "Class Timetable", canNavigateBack = true, onNavigateBack = onBack) }
+        topBar = { LifeHubTopAppBar(title = "Class Timetable", canNavigateBack = true, onNavigateBack = onBack) },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { showDialog = true },
+                icon = { Icon(Icons.Default.Add, contentDescription = "Add") },
+                text = { Text("Add Schedule") },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            )
+        }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -211,19 +418,89 @@ fun ClassTimetableScreen(onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            schedule.forEach { (day, classes) ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Weekly Timetable (${schedule.size} days)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                FilledTonalButton(onClick = { showDialog = true }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Add New", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+
+            if (schedule.isEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Text("No timetable periods scheduled. Tap '+ Add New' to schedule your classes.", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+
+            schedule.forEachIndexed { index, (day, classes) ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(day, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium)
-                        Text(classes, style = MaterialTheme.typography.bodyMedium)
+                    Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(day, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium)
+                            Text(classes, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        IconButton(onClick = {
+                            schedule = schedule.filterIndexed { i, _ -> i != index }
+                        }) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                        }
                     }
                 }
             }
         }
+    }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text("Add Class Schedule") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = dayOfWeek,
+                        onValueChange = { dayOfWeek = it },
+                        label = { Text("Day of Week") },
+                        placeholder = { Text("e.g. Saturday, Monday") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = classDetails,
+                        onValueChange = { classDetails = it },
+                        label = { Text("Classes & Timing") },
+                        placeholder = { Text("e.g. 10:00 Deep Learning • 02:00 Capstone Project") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (dayOfWeek.isNotBlank() && classDetails.isNotBlank()) {
+                            schedule = schedule + (dayOfWeek.trim() to classDetails.trim())
+                            dayOfWeek = ""
+                            classDetails = ""
+                            showDialog = false
+                        }
+                    },
+                    enabled = dayOfWeek.isNotBlank() && classDetails.isNotBlank()
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 

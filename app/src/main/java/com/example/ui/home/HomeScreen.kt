@@ -259,92 +259,6 @@ fun HomeScreen(
                 }
             }
 
-            // LifeHub AI Hero Banner
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(22.dp))
-                        .clickable { onNavigateToAI() }
-                        .testTag("home_ai_assistant_card"),
-                    shape = RoundedCornerShape(22.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                Brush.horizontalGradient(
-                                    colors = listOf(
-                                        Color(0xFF3730A3),
-                                        Color(0xFF4F46E5),
-                                        Color(0xFF7C3AED)
-                                    )
-                                )
-                            )
-                            .padding(20.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Surface(
-                                modifier = Modifier.size(54.dp),
-                                shape = RoundedCornerShape(16.dp),
-                                color = Color.White.copy(alpha = 0.2f)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.AutoAwesome,
-                                        contentDescription = "AI",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(30.dp)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.width(16.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "LifeHub AI Assistant",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = Color(0xFF10B981)
-                                    ) {
-                                        Text(
-                                            text = "ONLINE",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            color = Color.White,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Ask anything, log expenses, manage study or execute tool shortcuts.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color.White.copy(alpha = 0.9f)
-                                )
-                            }
-
-                            Icon(
-                                imageVector = Icons.Default.ArrowForwardIos,
-                                contentDescription = "Chat",
-                                tint = Color.White.copy(alpha = 0.8f),
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
             // Real-time Pulse Metrics (Battery, Storage, Expenses)
             item {
                 Row(
@@ -423,7 +337,7 @@ fun HomeScreen(
                         .clip(RoundedCornerShape(16.dp))
                         .clickable {
                             if (hasStoragePermission) {
-                                onNavigateToAI()
+                                onNavigateToToolRoute("tool_dup_photos")
                             } else {
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                     storagePermissionLauncher.launch(arrayOf(Manifest.permission.READ_MEDIA_IMAGES))
@@ -474,7 +388,7 @@ fun HomeScreen(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = if (hasStoragePermission) "Type \"find my photos in my gallery\" in AI Assistant"
+                                text = if (hasStoragePermission) "Tap to inspect gallery photos & clean redundant duplicates"
                                 else "Grant storage permission to scan photos & view media telemetry",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant

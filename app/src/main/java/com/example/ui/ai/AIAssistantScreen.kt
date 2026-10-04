@@ -141,7 +141,7 @@ fun AIAssistantScreen(
             listOf(
                 ChatMessage(
                     sender = "ai",
-                    text = "👋 **Welcome to LifeHub AI Assistant!**\n\nI am your unified phone brain equipped with **ElevenLabs AI Voice**, real device telemetry, and 100 tools:\n\n• 📸 **Find Photos**: *\"Find my photos in my gallery\"*\n• 🔋 **Battery Telemetry**: *\"How is my phone battery?\"*\n• 💾 **Storage Telemetry**: *\"Check available storage space\"*\n• 💸 **Log Expenses**: *\"Add ₹500 petrol expense\"*\n• 🧮 **Solve Math**: *\"18% GST on ₹4,500\"* or *\"15 km to miles\"*\n• 🗣️ **Voice Talking**: Tap the speaker icon on any message to hear me speak with ElevenLabs or Android TTS!"
+                    text = "👋 **Welcome to LifeHub Supreme AI!**\n\nI am your unified assistant equipped with **ElevenLabs AI Voice**, smart utilities, and 100 tools:\n\n• 📸 **Find Photos**: *\"Find my photos in my gallery\"*\n• 🔋 **Battery Telemetry**: *\"How is my phone battery?\"*\n• 💾 **Storage Telemetry**: *\"Check available storage space\"*\n• 💸 **Log Expenses**: *\"Add ₹500 petrol expense\"*\n• 🧮 **Solve Math**: *\"18% GST on ₹4,500\"* or *\"15 km to miles\"*\n• 🗣️ **Voice Talking**: Tap the speaker icon on any message to hear me speak with ElevenLabs or Android TTS!"
                 )
             )
         )
@@ -407,7 +407,7 @@ fun AIAssistantScreen(
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    text = "LifeHub AI",
+                                    text = "LifeHub Supreme AI",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
@@ -451,15 +451,6 @@ fun AIAssistantScreen(
                             )
                         }
 
-                        // Toggle Live Telemetry panel
-                        IconButton(onClick = { showTelemetryBar = !showTelemetryBar }) {
-                            Icon(
-                                imageVector = Icons.Default.Tune,
-                                contentDescription = "Device Metrics",
-                                tint = if (showTelemetryBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
                         // Reset Chat
                         IconButton(
                             onClick = {
@@ -493,138 +484,6 @@ fun AIAssistantScreen(
                 .padding(padding)
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
         ) {
-            // Live Device Hardware Panel (Battery, Storage, and Gallery Permission Status)
-            AnimatedVisibility(visible = showTelemetryBar) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    shadowElevation = 2.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            // Battery Panel Metric
-                            Surface(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .clickable { processUserMessage("How is my battery?") },
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = if (batteryInfo.isCharging) Icons.Default.BatteryChargingFull else Icons.Default.BatteryFull,
-                                        contentDescription = "Battery",
-                                        tint = if (batteryInfo.percentage > 20) MaterialTheme.colorScheme.primary else Color(0xFFEF4444),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Column {
-                                        Text(
-                                            text = "${batteryInfo.percentage}% Battery",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = if (batteryInfo.isCharging) "Charging" else batteryInfo.health,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Storage Panel Metric
-                            Surface(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .clickable { processUserMessage("How much storage left?") },
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.SdStorage,
-                                        contentDescription = "Storage",
-                                        tint = MaterialTheme.colorScheme.secondary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Column {
-                                        Text(
-                                            text = "${String.format(Locale.getDefault(), "%.1f", storageInfo.freeGb)} GB Free",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = "${storageInfo.usedPercentage}% storage used",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Photos Permission / Status Badge
-                            Surface(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .clickable {
-                                        if (hasStoragePermission) {
-                                            processUserMessage("Find my photos in my gallery")
-                                        } else {
-                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                                storagePermissionLauncher.launch(arrayOf(Manifest.permission.READ_MEDIA_IMAGES))
-                                            } else {
-                                                storagePermissionLauncher.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE))
-                                            }
-                                        }
-                                    },
-                                color = if (hasStoragePermission) Color(0xFF10B981).copy(alpha = 0.15f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(12.dp),
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    if (hasStoragePermission) Color(0xFF10B981).copy(alpha = 0.4f) else MaterialTheme.colorScheme.error.copy(alpha = 0.4f)
-                                )
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = if (hasStoragePermission) Icons.Default.PhotoLibrary else Icons.Default.Lock,
-                                        contentDescription = "Photos",
-                                        tint = if (hasStoragePermission) Color(0xFF059669) else MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = if (hasStoragePermission) "Gallery Active" else "Grant Access",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (hasStoragePermission) Color(0xFF059669) else MaterialTheme.colorScheme.error
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             // Quick suggestions horizontal pills
             LazyRow(
                 modifier = Modifier

@@ -72,7 +72,7 @@ fun SettingsScreen(
                     }
                     Spacer(modifier = Modifier.width(16.dp))
                     Column {
-                        Text("LifeHub AI – All in One", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Text("LifeHub Supreme – All in One", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
                         Text("Version 1.0.0 • 100 Tools Suite", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
                     }
                 }
@@ -215,7 +215,7 @@ fun PermissionCenterScreen(onBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.primary
             )
             Text(
-                "LifeHub AI adheres to strict least-privilege standards. Permissions are only requested at point of explicit use.",
+                "LifeHub Supreme adheres to strict least-privilege standards. Permissions are only requested at point of explicit use.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

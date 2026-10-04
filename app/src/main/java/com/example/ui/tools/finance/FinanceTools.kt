@@ -264,7 +264,18 @@ fun BillReminderScreen(onBack: () -> Unit) {
                 .padding(padding)
                 .padding(16.dp)
         ) {
-            Text("Upcoming & Active Bills", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Upcoming & Active Bills", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                FilledTonalButton(onClick = { showDialog = true }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Add New", style = MaterialTheme.typography.labelSmall)
+                }
+            }
             Spacer(modifier = Modifier.height(12.dp))
 
             if (bills.isEmpty()) {

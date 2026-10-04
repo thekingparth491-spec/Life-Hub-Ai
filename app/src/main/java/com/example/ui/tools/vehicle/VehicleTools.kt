@@ -21,13 +21,30 @@ import com.example.ui.components.LifeHubTopAppBar
 
 @Composable
 fun VehicleServiceScreen(onBack: () -> Unit) {
-    val serviceReminders = listOf(
-        Triple("Hyundai Creta (DL-08-AB-1234)", "Next Service: 18 Nov 2026", "At 35,000 km (3,200 km remaining)"),
-        Triple("Royal Enfield Hunter (DL-03-XY-9876)", "Next Service: 05 Dec 2026", "At 8,000 km (1,150 km remaining)")
-    )
+    var serviceReminders by remember {
+        mutableStateOf(
+            listOf(
+                Triple("Hyundai Creta (DL-08-AB-1234)", "Next Service: 18 Nov 2026", "At 35,000 km (3,200 km remaining)"),
+                Triple("Royal Enfield Hunter (DL-03-XY-9876)", "Next Service: 05 Dec 2026", "At 8,000 km (1,150 km remaining)")
+            )
+        )
+    }
+    var showDialog by remember { mutableStateOf(false) }
+    var vehicleName by remember { mutableStateOf("") }
+    var serviceDate by remember { mutableStateOf("") }
+    var serviceDetails by remember { mutableStateOf("") }
 
     Scaffold(
-        topBar = { LifeHubTopAppBar(title = "Vehicle Service Reminder", canNavigateBack = true, onNavigateBack = onBack) }
+        topBar = { LifeHubTopAppBar(title = "Vehicle Service Reminder", canNavigateBack = true, onNavigateBack = onBack) },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { showDialog = true },
+                icon = { Icon(Icons.Default.Add, contentDescription = "Add") },
+                text = { Text("Add Reminder") },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            )
+        }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -37,20 +54,100 @@ fun VehicleServiceScreen(onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            serviceReminders.forEach { (vehicle, date, details) ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Scheduled Reminders (${serviceReminders.size})", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                FilledTonalButton(onClick = { showDialog = true }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Add New", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+
+            if (serviceReminders.isEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Text("No service reminders yet. Tap '+ Add New' to schedule your vehicle service.", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+
+            serviceReminders.forEachIndexed { index, (vehicle, date, details) ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                     shape = RoundedCornerShape(14.dp)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(vehicle, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                        Text(date, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-                        Text(details, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(vehicle, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                            Text(date, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                            Text(details, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(onClick = {
+                            serviceReminders = serviceReminders.filterIndexed { i, _ -> i != index }
+                        }) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                        }
                     }
                 }
             }
         }
+    }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text("Add Vehicle Service Reminder") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = vehicleName,
+                        onValueChange = { vehicleName = it },
+                        label = { Text("Vehicle Name & Reg No.") },
+                        placeholder = { Text("e.g. Honda City (MH-01-AB-1234)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = serviceDate,
+                        onValueChange = { serviceDate = it },
+                        label = { Text("Scheduled Service Date") },
+                        placeholder = { Text("e.g. Next Service: 20 Dec 2026") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = serviceDetails,
+                        onValueChange = { serviceDetails = it },
+                        label = { Text("Service Details / Km") },
+                        placeholder = { Text("e.g. Engine oil & brake pad replacement at 40,000 km") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (vehicleName.isNotBlank()) {
+                            val formattedDate = if (serviceDate.isBlank()) "Next Service: Due Soon" else if (!serviceDate.startsWith("Next")) "Next Service: $serviceDate" else serviceDate
+                            val formattedDetails = if (serviceDetails.isBlank()) "General periodic service checkup" else serviceDetails
+                            serviceReminders = serviceReminders + Triple(vehicleName.trim(), formattedDate, formattedDetails)
+                            vehicleName = ""
+                            serviceDate = ""
+                            serviceDetails = ""
+                            showDialog = false
+                        }
+                    },
+                    enabled = vehicleName.isNotBlank()
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 
