@@ -1,5 +1,14 @@
 package com.example.ui.ai
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
@@ -15,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Launch
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -32,10 +42,16 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import coil.compose.AsyncImage
 import com.example.LifeHubApplication
 import com.example.data.local.entity.ExpenseEntity
 import com.example.data.local.entity.NoteEntity
 import com.example.data.remote.GeminiService
+import com.example.data.remote.VoiceEngine
+import com.example.data.remote.VoiceService
+import com.example.util.DeviceHardwareHelper
+import com.example.util.GalleryPhotoItem
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -46,7 +62,8 @@ data class ChatMessage(
     val sender: String, // "user" or "ai"
     val text: String,
     val timestamp: Long = System.currentTimeMillis(),
-    val actionPayload: ActionProposal? = null
+    val actionPayload: ActionProposal? = null,
+    val photosList: List<GalleryPhotoItem>? = null
 )
 
 data class ActionProposal(
@@ -77,6 +94,45 @@ fun AIAssistantScreen(
     val listState = rememberLazyListState()
     val clipboardManager = LocalClipboardManager.current
 
+    // Voice Service for ElevenLabs and Android Natural TTS
+    val voiceService = remember { VoiceService(context) }
+    var isSpeaking by remember { mutableStateOf(false) }
+    var selectedVoice by remember { mutableStateOf(VoiceEngine.ELEVEN_LABS_RACHEL) }
+    var showVoiceDialog by remember { mutableStateOf(false) }
+    var autoSpeakResponses by remember { mutableStateOf(false) }
+
+    DisposableEffect(voiceService) {
+        voiceService.isSpeakingCallback = { speaking ->
+            isSpeaking = speaking
+        }
+        onDispose {
+            voiceService.release()
+        }
+    }
+
+    // Device Hardware Live Telemetry
+    var batteryInfo by remember { mutableStateOf(DeviceHardwareHelper.getBatteryInfo(context)) }
+    var storageInfo by remember { mutableStateOf(DeviceHardwareHelper.getStorageInfo()) }
+    var hasStoragePermission by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+            } else {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+            }
+        )
+    }
+
+    var showTelemetryBar by remember { mutableStateOf(true) }
+
+    // Speech Recognizer for Voice Input
+    var isListening by remember { mutableStateOf(false) }
+    val speechRecognizer = remember {
+        if (SpeechRecognizer.isRecognitionAvailable(context)) {
+            SpeechRecognizer.createSpeechRecognizer(context)
+        } else null
+    }
+
     var inputText by remember { mutableStateOf("") }
     var isThinking by remember { mutableStateOf(false) }
 
@@ -85,7 +141,7 @@ fun AIAssistantScreen(
             listOf(
                 ChatMessage(
                     sender = "ai",
-                    text = "👋 **Welcome to LifeHub AI Assistant!**\n\nI am connected to all 100 tools across Finance, Utilities, Health, Safety, and Studies. How can I help you right now?\n\n• 💸 **Log an expense**: *\"Add ₹450 dinner\"*\n• 🧮 **Solve calculations**: *\"15% of ₹2,400\"* or *\"10 km to miles\"*\n• 📝 **Draft notes & tasks**: *\"Note down project ideas\"*\n• ⚡ **Direct tool control**: Ask me to open any tool!"
+                    text = "👋 **Welcome to LifeHub AI Assistant!**\n\nI am your unified phone brain equipped with **ElevenLabs AI Voice**, real device telemetry, and 100 tools:\n\n• 📸 **Find Photos**: *\"Find my photos in my gallery\"*\n• 🔋 **Battery Telemetry**: *\"How is my phone battery?\"*\n• 💾 **Storage Telemetry**: *\"Check available storage space\"*\n• 💸 **Log Expenses**: *\"Add ₹500 petrol expense\"*\n• 🧮 **Solve Math**: *\"18% GST on ₹4,500\"* or *\"15 km to miles\"*\n• 🗣️ **Voice Talking**: Tap the speaker icon on any message to hear me speak with ElevenLabs or Android TTS!"
                 )
             )
         )
@@ -94,13 +150,64 @@ fun AIAssistantScreen(
     var pendingAction by remember { mutableStateOf<ActionProposal?>(null) }
     var actionSnackbarMessage by remember { mutableStateOf<String?>(null) }
 
+    // Permission launcher for Storage & Photos
+    val storagePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions.values.any { it }
+        hasStoragePermission = granted
+        if (granted) {
+            actionSnackbarMessage = "✅ Full phone storage & photo access granted!"
+            storageInfo = DeviceHardwareHelper.getStorageInfo()
+        } else {
+            actionSnackbarMessage = "Storage permission was not granted."
+        }
+    }
+
+    // Permission launcher for Voice Dictation (Microphone)
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted && speechRecognizer != null) {
+            try {
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to LifeHub AI...")
+                }
+                speechRecognizer.setRecognitionListener(object : RecognitionListener {
+                    override fun onReadyForSpeech(params: android.os.Bundle?) { isListening = true }
+                    override fun onBeginningOfSpeech() {}
+                    override fun onRmsChanged(rmsdB: Float) {}
+                    override fun onBufferReceived(buffer: ByteArray?) {}
+                    override fun onEndOfSpeech() { isListening = false }
+                    override fun onError(error: Int) { isListening = false }
+                    override fun onResults(results: android.os.Bundle?) {
+                        isListening = false
+                        val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        if (!matches.isNullOrEmpty()) {
+                            inputText = matches[0]
+                        }
+                    }
+                    override fun onPartialResults(partialResults: android.os.Bundle?) {}
+                    override fun onEvent(eventType: Int, params: android.os.Bundle?) {}
+                })
+                speechRecognizer.startListening(intent)
+            } catch (e: Exception) {
+                isListening = false
+            }
+        } else {
+            actionSnackbarMessage = "Microphone permission is needed for voice input."
+        }
+    }
+
     val quickSuggestions = listOf(
+        "Find my photos in my gallery",
+        "How is my battery and storage?",
         "Add ₹500 petrol expense",
         "Convert 15 km to miles",
         "18% GST on ₹4,500",
         "Pomodoro study routine",
-        "Car tyre care checklist",
-        "Daily water intake plan",
         "Emergency SOS shortcuts"
     )
 
@@ -112,6 +219,10 @@ fun AIAssistantScreen(
         messages = messages + userMsg
         inputText = ""
 
+        // Update live battery & storage telemetry
+        batteryInfo = DeviceHardwareHelper.getBatteryInfo(context)
+        storageInfo = DeviceHardwareHelper.getStorageInfo()
+
         scope.launch {
             isThinking = true
             delay(100)
@@ -121,8 +232,24 @@ fun AIAssistantScreen(
 
             val q = cleanQuery.lowercase()
 
-            // Check for direct actionable intents
+            // 1. Check for Gallery Photos Search intent
+            var foundPhotos: List<GalleryPhotoItem>? = null
+            if (q.contains("photo") || q.contains("gallery") || q.contains("pictures") || q.contains("images")) {
+                if (hasStoragePermission) {
+                    foundPhotos = DeviceHardwareHelper.searchGalleryPhotos(context, limit = 8)
+                }
+            }
+
+            // 2. Check for direct actionable intents
             val actionPayload: ActionProposal? = when {
+                (q.contains("photo") || q.contains("gallery")) && !hasStoragePermission -> {
+                    ActionProposal(
+                        title = "Allow Storage & Photos Access",
+                        description = "Grant storage permission to find photos in your phone gallery",
+                        actionType = "REQUEST_STORAGE_PERMISSION"
+                    )
+                }
+
                 q.contains("expense") || (q.contains("add") && (q.contains("₹") || q.contains("rs") || q.contains("spend") || q.contains("petrol") || q.contains("grocery") || q.contains("dinner") || q.contains("lunch"))) -> {
                     val numbers = Regex("\\d+").findAll(q).map { it.value.toDoubleOrNull() ?: 0.0 }.toList()
                     val amount = numbers.firstOrNull() ?: 500.0
@@ -139,6 +266,24 @@ fun AIAssistantScreen(
                         actionType = "ADD_EXPENSE",
                         amount = amount,
                         note = title
+                    )
+                }
+
+                q.contains("battery") -> {
+                    ActionProposal(
+                        title = "Open Battery Monitor",
+                        description = "View real-time temperature, voltage & charge telemetry",
+                        actionType = "NAVIGATE_TOOL",
+                        targetRoute = "tool_battery_monitor"
+                    )
+                }
+
+                q.contains("storage") -> {
+                    ActionProposal(
+                        title = "Open Storage Analyzer",
+                        description = "Analyze free space, large files & redundant cache",
+                        actionType = "NAVIGATE_TOOL",
+                        targetRoute = "tool_storage_analyzer"
                     )
                 }
 
@@ -196,28 +341,21 @@ fun AIAssistantScreen(
                     )
                 }
 
-                q.contains("note") || q.contains("remind") -> {
-                    ActionProposal(
-                        title = "Save Note",
-                        description = "Store \"$cleanQuery\" in Notes Organizer",
-                        actionType = "SAVE_NOTE",
-                        note = cleanQuery
-                    )
-                }
-
                 else -> null
             }
 
-            // Generate AI response with Gemini / Local fallback
+            // Generate AI response with Gemini / Local fallback passing device context
             val responseText = GeminiService.generateResponse(
-                cleanQuery,
-                systemInstruction = "You are LifeHub AI, an intelligent, helpful, and concise assistant embedded in an all-in-one Android super app with 100 tools. Provide clear, direct answers with bullet points and friendly emojis."
+                userPrompt = cleanQuery,
+                systemInstruction = "You are LifeHub AI, an intelligent, helpful, and concise assistant embedded in an all-in-one Android super app with 100 tools. Answer based specifically on the user's text. Avoid generic repeated answers. Use bullet points and friendly emojis.",
+                context = context
             )
 
             val aiResponse = ChatMessage(
                 sender = "ai",
                 text = responseText,
-                actionPayload = actionPayload
+                actionPayload = actionPayload,
+                photosList = foundPhotos
             )
 
             messages = messages + aiResponse
@@ -225,6 +363,11 @@ fun AIAssistantScreen(
             delay(100)
             if (messages.isNotEmpty()) {
                 listState.animateScrollToItem(messages.size - 1)
+            }
+
+            // Auto-speak if enabled
+            if (autoSpeakResponses) {
+                voiceService.speak(responseText, selectedVoice)
             }
         }
     }
@@ -274,11 +417,11 @@ fun AIAssistantScreen(
                                         modifier = Modifier
                                             .size(8.dp)
                                             .clip(CircleShape)
-                                            .background(Color(0xFF10B981))
+                                            .background(if (isSpeaking) Color(0xFF3B82F6) else Color(0xFF10B981))
                                     )
                                     Spacer(modifier = Modifier.width(5.dp))
                                     Text(
-                                        text = "Online • 100 Tools Connected",
+                                        text = if (isSpeaking) "Speaking with AI Voice..." else "Online • ElevenLabs & 100 Tools",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.primary,
                                         fontWeight = FontWeight.SemiBold
@@ -299,12 +442,32 @@ fun AIAssistantScreen(
                         }
                     },
                     actions = {
+                        // Voice Engine Selector Button
+                        IconButton(onClick = { showVoiceDialog = true }) {
+                            Icon(
+                                imageVector = if (isSpeaking) Icons.Default.VolumeUp else Icons.Default.RecordVoiceOver,
+                                contentDescription = "AI Voice Settings",
+                                tint = if (isSpeaking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        // Toggle Live Telemetry panel
+                        IconButton(onClick = { showTelemetryBar = !showTelemetryBar }) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = "Device Metrics",
+                                tint = if (showTelemetryBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        // Reset Chat
                         IconButton(
                             onClick = {
+                                voiceService.stop()
                                 messages = listOf(
                                     ChatMessage(
                                         sender = "ai",
-                                        text = "Chat cleared! How can I assist you with LifeHub's tools today?"
+                                        text = "Chat cleared! How can I assist you right now? Try saying: *\"Find my photos in my gallery\"* or *\"Show battery status\"*."
                                     )
                                 )
                             }
@@ -330,11 +493,143 @@ fun AIAssistantScreen(
                 .padding(padding)
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
         ) {
+            // Live Device Hardware Panel (Battery, Storage, and Gallery Permission Status)
+            AnimatedVisibility(visible = showTelemetryBar) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Battery Panel Metric
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { processUserMessage("How is my battery?") },
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = if (batteryInfo.isCharging) Icons.Default.BatteryChargingFull else Icons.Default.BatteryFull,
+                                        contentDescription = "Battery",
+                                        tint = if (batteryInfo.percentage > 20) MaterialTheme.colorScheme.primary else Color(0xFFEF4444),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Column {
+                                        Text(
+                                            text = "${batteryInfo.percentage}% Battery",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = if (batteryInfo.isCharging) "Charging" else batteryInfo.health,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Storage Panel Metric
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { processUserMessage("How much storage left?") },
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.SdStorage,
+                                        contentDescription = "Storage",
+                                        tint = MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Column {
+                                        Text(
+                                            text = "${String.format(Locale.getDefault(), "%.1f", storageInfo.freeGb)} GB Free",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "${storageInfo.usedPercentage}% storage used",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Photos Permission / Status Badge
+                            Surface(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        if (hasStoragePermission) {
+                                            processUserMessage("Find my photos in my gallery")
+                                        } else {
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                                storagePermissionLauncher.launch(arrayOf(Manifest.permission.READ_MEDIA_IMAGES))
+                                            } else {
+                                                storagePermissionLauncher.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE))
+                                            }
+                                        }
+                                    },
+                                color = if (hasStoragePermission) Color(0xFF10B981).copy(alpha = 0.15f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(12.dp),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    if (hasStoragePermission) Color(0xFF10B981).copy(alpha = 0.4f) else MaterialTheme.colorScheme.error.copy(alpha = 0.4f)
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = if (hasStoragePermission) Icons.Default.PhotoLibrary else Icons.Default.Lock,
+                                        contentDescription = "Photos",
+                                        tint = if (hasStoragePermission) Color(0xFF059669) else MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = if (hasStoragePermission) "Gallery Active" else "Grant Access",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (hasStoragePermission) Color(0xFF059669) else MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Quick suggestions horizontal pills
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 10.dp),
+                    .padding(vertical = 8.dp),
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -353,10 +648,10 @@ fun AIAssistantScreen(
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Bolt,
+                                imageVector = if (suggestion.contains("photo")) Icons.Default.PhotoCamera else Icons.Default.Bolt,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(14.dp)
@@ -449,6 +744,59 @@ fun AIAssistantScreen(
                                     color = if (isAi) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimary
                                 )
 
+                                // Real Gallery Photos Carousel (when user asked to find photos)
+                                msg.photosList?.let { photos ->
+                                    if (photos.isNotEmpty()) {
+                                        Text(
+                                            text = "🖼️ Gallery Photos (${photos.size} found):",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+
+                                        LazyRow(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            items(photos) { photo ->
+                                                Card(
+                                                    modifier = Modifier
+                                                        .size(width = 110.dp, height = 130.dp)
+                                                        .clip(RoundedCornerShape(10.dp)),
+                                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                                                ) {
+                                                    Column {
+                                                        AsyncImage(
+                                                            model = photo.uri,
+                                                            contentDescription = photo.displayName,
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .height(80.dp)
+                                                                .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)),
+                                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                                        )
+                                                        Column(modifier = Modifier.padding(4.dp)) {
+                                                            Text(
+                                                                text = photo.displayName,
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                fontWeight = FontWeight.SemiBold,
+                                                                maxLines = 1,
+                                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                                            )
+                                                            Text(
+                                                                text = photo.sizeFormatted,
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                fontSize = 10.sp
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
                                 // Action Proposal Card if an executable action was detected
                                 msg.actionPayload?.let { action ->
                                     Card(
@@ -487,10 +835,20 @@ fun AIAssistantScreen(
 
                                             Button(
                                                 onClick = {
-                                                    if (action.actionType == "NAVIGATE_TOOL") {
-                                                        onNavigateToTool(action.targetRoute)
-                                                    } else {
-                                                        pendingAction = action
+                                                    when (action.actionType) {
+                                                        "NAVIGATE_TOOL" -> {
+                                                            onNavigateToTool(action.targetRoute)
+                                                        }
+                                                        "REQUEST_STORAGE_PERMISSION" -> {
+                                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                                                storagePermissionLauncher.launch(arrayOf(Manifest.permission.READ_MEDIA_IMAGES))
+                                                            } else {
+                                                                storagePermissionLauncher.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE))
+                                                            }
+                                                        }
+                                                        else -> {
+                                                            pendingAction = action
+                                                        }
                                                     }
                                                 },
                                                 modifier = Modifier
@@ -502,13 +860,15 @@ fun AIAssistantScreen(
                                                 )
                                             ) {
                                                 Icon(
-                                                    imageVector = if (action.actionType == "NAVIGATE_TOOL") Icons.Default.Launch else Icons.Default.Check,
+                                                    imageVector = if (action.actionType == "NAVIGATE_TOOL") Icons.AutoMirrored.Filled.Launch else Icons.Default.Check,
                                                     contentDescription = null,
                                                     modifier = Modifier.size(16.dp)
                                                 )
                                                 Spacer(modifier = Modifier.width(6.dp))
                                                 Text(
-                                                    text = if (action.actionType == "NAVIGATE_TOOL") "Open Tool" else "Confirm & Save",
+                                                    text = if (action.actionType == "NAVIGATE_TOOL") "Open Tool"
+                                                    else if (action.actionType == "REQUEST_STORAGE_PERMISSION") "Allow Storage & Photos"
+                                                    else "Confirm & Save",
                                                     style = MaterialTheme.typography.labelMedium,
                                                     fontWeight = FontWeight.Bold
                                                 )
@@ -517,12 +877,44 @@ fun AIAssistantScreen(
                                     }
                                 }
 
-                                // Copy Response Tool
+                                // Interactive Footer for AI Messages: Voice Speak + Copy
                                 if (isAi) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.End
+                                        horizontalArrangement = Arrangement.End,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
+                                        // Play AI Voice (ElevenLabs or Android Natural TTS)
+                                        TextButton(
+                                            onClick = {
+                                                if (isSpeaking) {
+                                                    voiceService.stop()
+                                                } else {
+                                                    scope.launch {
+                                                        voiceService.speak(msg.text, selectedVoice)
+                                                    }
+                                                }
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                            modifier = Modifier.height(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isSpeaking) Icons.Default.Stop else Icons.Default.VolumeUp,
+                                                contentDescription = "Speak",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                if (isSpeaking) "Stop" else "Speak AI Voice",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        // Copy to clipboard
                                         TextButton(
                                             onClick = {
                                                 clipboardManager.setText(AnnotatedString(msg.text))
@@ -584,7 +976,7 @@ fun AIAssistantScreen(
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = "LifeHub AI is reasoning...",
+                                text = "LifeHub AI is analyzing query...",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Medium
@@ -648,17 +1040,28 @@ fun AIAssistantScreen(
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Voice prompt helper icon
+                    // Voice Dictation Microphone Button
                     IconButton(
                         onClick = {
-                            inputText = "Log ₹500 petrol expense"
+                            val audioPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                            if (audioPermission == PackageManager.PERMISSION_GRANTED) {
+                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            } else {
+                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
                         },
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isListening) Color(0xFFEF4444).copy(alpha = 0.2f)
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            )
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = "Voice Dictation",
-                            tint = MaterialTheme.colorScheme.primary,
+                            imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
+                            contentDescription = "Voice Input",
+                            tint = if (isListening) Color(0xFFEF4444) else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -668,7 +1071,7 @@ fun AIAssistantScreen(
                         onValueChange = { inputText = it },
                         placeholder = {
                             Text(
-                                "Ask AI, record expense, convert...",
+                                "Find my photos, check battery, ask AI...",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
                             )
@@ -713,6 +1116,81 @@ fun AIAssistantScreen(
                 }
             }
         }
+    }
+
+    // Voice Engine Selection Dialog
+    if (showVoiceDialog) {
+        AlertDialog(
+            onDismissRequest = { showVoiceDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("AI Voice Talking Settings")
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Choose which speech synthesis engine talks back to you:",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+
+                    VoiceEngine.values().forEach { voice ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { selectedVoice = voice }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = selectedVoice == voice,
+                                onClick = { selectedVoice = voice }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = voice.displayName,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (selectedVoice == voice) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Auto-speak AI replies aloud", style = MaterialTheme.typography.bodyMedium)
+                        Switch(
+                            checked = autoSpeakResponses,
+                            onCheckedChange = { autoSpeakResponses = it }
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showVoiceDialog = false
+                        scope.launch {
+                            voiceService.speak("Hello, LifeHub AI voice engine is active and ready to assist you!", selectedVoice)
+                        }
+                    }
+                ) {
+                    Text("Test & Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showVoiceDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
     }
 
     // Confirmation dialog before consequential actions (adding real database entries)

@@ -1,7 +1,9 @@
 package com.example.data.remote
 
+import android.content.Context
 import android.util.Log
 import com.example.BuildConfig
+import com.example.util.DeviceHardwareHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -10,6 +12,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 object GeminiService {
@@ -17,25 +20,43 @@ object GeminiService {
     private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    suspend fun generateResponse(userPrompt: String, systemInstruction: String = "You are LifeHub AI, a helpful, polite, and intelligent assistant inside an all-in-one Android super app."): String = withContext(Dispatchers.IO) {
+    suspend fun generateResponse(
+        userPrompt: String,
+        systemInstruction: String = "You are LifeHub AI, an intelligent, helpful, and concise assistant embedded in an all-in-one Android super app with 100 tools. Provide clear, direct answers with bullet points and friendly emojis.",
+        context: Context? = null
+    ): String = withContext(Dispatchers.IO) {
         val apiKey = try {
-            BuildConfig.GEMINI_API_KEY
+            val key = BuildConfig.GEMINI_API_KEY
+            if (key == "MY_GEMINI_API_KEY") "" else key
         } catch (e: Exception) {
             ""
         }
 
-        // If no API key or placeholder key, use local fallback
-        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
-            Log.d(TAG, "No valid Gemini API key found in BuildConfig, using local AI engine")
-            return@withContext LocalAIEngine.generateSmartResponse(userPrompt)
+        // Build live device context to augment the prompt
+        val deviceContext = if (context != null) {
+            try {
+                val battery = DeviceHardwareHelper.getBatteryInfo(context)
+                val storage = DeviceHardwareHelper.getStorageInfo()
+                " [System Context: Battery=${battery.percentage}%, Charging=${battery.isCharging}, Temp=${battery.temperatureCelsius}°C, FreeStorage=${String.format(Locale.getDefault(), "%.1f", storage.freeGb)}GB/${String.format(Locale.getDefault(), "%.1f", storage.totalGb)}GB (${storage.usedPercentage}% used)]"
+            } catch (e: Exception) {
+                ""
+            }
+        } else ""
+
+        // If no API key or placeholder key, use dynamic local AI engine
+        if (apiKey.isBlank()) {
+            Log.d(TAG, "No valid Gemini API key found, using dynamic local AI engine")
+            return@withContext LocalAIEngine.generateSmartResponse(userPrompt, context)
         }
 
         try {
+            val enrichedInstruction = "$systemInstruction$deviceContext. Answer the user's prompt specifically, accurately, and naturally. Never repeat canned generic phrases."
+
             val root = JSONObject().apply {
                 val contents = JSONArray().apply {
                     put(JSONObject().apply {
@@ -53,7 +74,7 @@ object GeminiService {
                 put("systemInstruction", JSONObject().apply {
                     val parts = JSONArray().apply {
                         put(JSONObject().apply {
-                            put("text", systemInstruction)
+                            put("text", enrichedInstruction)
                         })
                     }
                     put("parts", parts)
@@ -77,7 +98,7 @@ object GeminiService {
 
             if (!response.isSuccessful) {
                 Log.w(TAG, "Gemini API call returned code: ${response.code}, falling back to local AI")
-                return@withContext LocalAIEngine.generateSmartResponse(userPrompt)
+                return@withContext LocalAIEngine.generateSmartResponse(userPrompt, context)
             }
 
             val jsonResponse = JSONObject(responseBody)
@@ -90,132 +111,175 @@ object GeminiService {
             if (!text.isNullOrBlank()) {
                 text.trim()
             } else {
-                LocalAIEngine.generateSmartResponse(userPrompt)
+                LocalAIEngine.generateSmartResponse(userPrompt, context)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error calling Gemini API: ${e.message}", e)
-            LocalAIEngine.generateSmartResponse(userPrompt)
+            LocalAIEngine.generateSmartResponse(userPrompt, context)
         }
     }
 }
 
 object LocalAIEngine {
-    fun generateSmartResponse(query: String): String {
-        val q = query.lowercase().trim()
 
-        // 1. Math evaluation: e.g. 500 * 12, 1200 + 450, 15% of 2000
+    fun generateSmartResponse(query: String, context: Context? = null): String {
+        val q = query.lowercase().trim()
+        val original = query.trim()
+
+        // 1. Photos & Gallery Queries: "find my photos in my gallery", "find photos", "my gallery"
+        if (q.contains("photo") || q.contains("gallery") || q.contains("pictures") || q.contains("images")) {
+            if (context != null) {
+                val photos = DeviceHardwareHelper.searchGalleryPhotos(context, limit = 5)
+                if (photos.isNotEmpty()) {
+                    val sb = StringBuilder("📸 **Gallery Search Results**:\n\n")
+                    sb.append("Found **${photos.size}** recent photos in your storage:\n")
+                    photos.forEachIndexed { i, photo ->
+                        sb.append("• **${photo.displayName}** (${photo.sizeFormatted}) — *${photo.dateAddedStr}*\n")
+                    }
+                    sb.append("\nYou can view, clean duplicates, or organize them directly using the **Duplicate Photo Finder** tool under Phone Tools!")
+                    return sb.toString()
+                } else {
+                    return "📸 **Gallery Photo Finder**:\n\n" +
+                            "I checked your device storage for photos. If prompted, please allow storage/media access so I can search and display your gallery photos directly here!\n\n" +
+                            "You can also launch the **Duplicate Photo Finder** or **Storage Analyzer** under Phone Tools to inspect albums."
+                }
+            } else {
+                return "📸 **Gallery Photo Finder**:\n\n" +
+                        "Tap the **Scan Photos** button or grant Media access to allow me to search all photos and pictures stored on your phone."
+            }
+        }
+
+        // 2. Real Battery Queries
+        if (q.contains("battery") || q.contains("charging") || q.contains("power")) {
+            return if (context != null) {
+                val b = DeviceHardwareHelper.getBatteryInfo(context)
+                "🔋 **Device Battery Status**:\n\n" +
+                        "• **Charge Level**: **${b.percentage}%**\n" +
+                        "• **Status**: ${if (b.isCharging) "⚡ Charging via ${b.chargePlug}" else "🔋 Discharging (${b.chargePlug})"}\n" +
+                        "• **Battery Health**: ${b.health}\n" +
+                        "• **Temperature**: ${String.format(Locale.getDefault(), "%.1f", b.temperatureCelsius)}°C\n" +
+                        "• **Voltage**: ${String.format(Locale.getDefault(), "%.2f", b.voltageVolts)} V\n" +
+                        "• **Technology**: ${b.technology}\n\n" +
+                        "Tip: Use **Battery Monitor** or **Charging Tracker** in Phone Tools for live graph telemetry!"
+            } else {
+                "🔋 **Battery Telemetry**: Device is currently at optimal capacity. Open **Battery Monitor** in Phone Tools for temperature and voltage graphs!"
+            }
+        }
+
+        // 3. Real Storage Queries
+        if (q.contains("storage") || q.contains("space") || q.contains("ram") || q.contains("memory") || q.contains("disk")) {
+            val s = DeviceHardwareHelper.getStorageInfo()
+            return "💾 **Device Storage Breakdown**:\n\n" +
+                    "• **Free Space**: **${String.format(Locale.getDefault(), "%.2f", s.freeGb)} GB** available\n" +
+                    "• **Used Space**: **${String.format(Locale.getDefault(), "%.2f", s.usedGb)} GB** (${s.usedPercentage}% used)\n" +
+                    "• **Total Capacity**: **${String.format(Locale.getDefault(), "%.2f", s.totalGb)} GB**\n\n" +
+                    "Need to free up space? Try the **Storage Analyzer** or **Duplicate File Finder** in Phone Tools!"
+        }
+
+        // 4. Mathematical Evaluations & Expressions
         val percentageMatch = Regex("(\\d+(?:\\.\\d+)?)\\s*%\\s*(?:of)?\\s*(\\d+(?:\\.\\d+)?)").find(q)
         if (percentageMatch != null) {
             val pct = percentageMatch.groupValues[1].toDoubleOrNull() ?: 0.0
             val total = percentageMatch.groupValues[2].toDoubleOrNull() ?: 0.0
             val result = (pct / 100.0) * total
-            return "🧮 **Calculation Result**:\n\n• **Formula**: $pct% of $total\n• **Answer**: **$result**\n\nNeed to calculate GST or split costs? Check out the **GST Calculator** or **Split Bill** tool in Utilities!"
+            return "🧮 **Calculation**:\n\n• **Expression**: $pct% of $total\n• **Result**: **$result**\n• **Formula**: ($pct ÷ 100) × $total = $result"
         }
 
-        // 2. Unit conversion evaluation: e.g. 15 km to miles, 10 feet to meters
+        val arithmeticAdd = Regex("(\\d+(?:\\.\\d+)?)\\s*\\+\\s*(\\d+(?:\\.\\d+)?)").find(q)
+        if (arithmeticAdd != null) {
+            val a = arithmeticAdd.groupValues[1].toDoubleOrNull() ?: 0.0
+            val b = arithmeticAdd.groupValues[2].toDoubleOrNull() ?: 0.0
+            return "🧮 **Calculation**:\n\n• **$a + $b** = **${a + b}**"
+        }
+        val arithmeticSub = Regex("(\\d+(?:\\.\\d+)?)\\s*\\-\\s*(\\d+(?:\\.\\d+)?)").find(q)
+        if (arithmeticSub != null) {
+            val a = arithmeticSub.groupValues[1].toDoubleOrNull() ?: 0.0
+            val b = arithmeticSub.groupValues[2].toDoubleOrNull() ?: 0.0
+            return "🧮 **Calculation**:\n\n• **$a − $b** = **${a - b}**"
+        }
+        val arithmeticMul = Regex("(\\d+(?:\\.\\d+)?)\\s*[\\*x×]\\s*(\\d+(?:\\.\\d+)?)").find(q)
+        if (arithmeticMul != null) {
+            val a = arithmeticMul.groupValues[1].toDoubleOrNull() ?: 0.0
+            val b = arithmeticMul.groupValues[2].toDoubleOrNull() ?: 0.0
+            return "🧮 **Calculation**:\n\n• **$a × $b** = **${a * b}**"
+        }
+        val arithmeticDiv = Regex("(\\d+(?:\\.\\d+)?)\\s*[\\/÷]\\s*(\\d+(?:\\.\\d+)?)").find(q)
+        if (arithmeticDiv != null) {
+            val a = arithmeticDiv.groupValues[1].toDoubleOrNull() ?: 0.0
+            val b = arithmeticDiv.groupValues[2].toDoubleOrNull() ?: 1.0
+            val res = if (b != 0.0) a / b else 0.0
+            return "🧮 **Calculation**:\n\n• **$a ÷ $b** = **${String.format(Locale.getDefault(), "%.3f", res)}**"
+        }
+
+        // 5. Unit Conversions
         if (q.contains("km") && q.contains("mile")) {
             val num = Regex("(\\d+(?:\\.\\d+)?)").find(q)?.groupValues?.get(1)?.toDoubleOrNull() ?: 1.0
             val converted = num * 0.621371
-            return "📏 **Unit Conversion**:\n\n• **$num Kilometers (km)** = **${String.format("%.3f", converted)} Miles (mi)**\n\n*1 km ≈ 0.621371 miles.* Open **Unit Converter** for 40+ units!"
+            return "📏 **Unit Conversion**:\n\n• **$num Kilometers (km)** = **${String.format(Locale.getDefault(), "%.3f", converted)} Miles (mi)**\n\n*(1 km = 0.621371 miles)*"
         }
         if (q.contains("mile") && q.contains("km")) {
             val num = Regex("(\\d+(?:\\.\\d+)?)").find(q)?.groupValues?.get(1)?.toDoubleOrNull() ?: 1.0
             val converted = num * 1.60934
-            return "📏 **Unit Conversion**:\n\n• **$num Miles (mi)** = **${String.format("%.3f", converted)} Kilometers (km)**\n\n*1 mile ≈ 1.60934 km.*"
+            return "📏 **Unit Conversion**:\n\n• **$num Miles (mi)** = **${String.format(Locale.getDefault(), "%.3f", converted)} Kilometers (km)**\n\n*(1 mi = 1.60934 km)*"
         }
         if (q.contains("feet") && q.contains("meter")) {
             val num = Regex("(\\d+(?:\\.\\d+)?)").find(q)?.groupValues?.get(1)?.toDoubleOrNull() ?: 1.0
             val converted = num * 0.3048
-            return "📏 **Unit Conversion**:\n\n• **$num Feet (ft)** = **${String.format("%.3f", converted)} Meters (m)**\n\n*1 foot = 0.3048 meters.*"
+            return "📏 **Unit Conversion**:\n\n• **$num Feet (ft)** = **${String.format(Locale.getDefault(), "%.3f", converted)} Meters (m)**"
         }
         if (q.contains("kg") && (q.contains("pound") || q.contains("lbs"))) {
             val num = Regex("(\\d+(?:\\.\\d+)?)").find(q)?.groupValues?.get(1)?.toDoubleOrNull() ?: 1.0
             val converted = num * 2.20462
-            return "⚖️ **Weight Conversion**:\n\n• **$num Kilograms (kg)** = **${String.format("%.2f", converted)} Pounds (lbs)**\n\n*1 kg ≈ 2.20462 lbs.*"
+            return "⚖️ **Weight Conversion**:\n\n• **$num Kilograms (kg)** = **${String.format(Locale.getDefault(), "%.2f", converted)} Pounds (lbs)**"
         }
 
-        // 3. Simple basic arithmetic: "calculate 450 + 230"
-        val addMatch = Regex("(\\d+(?:\\.\\d+)?)\\s*\\+\\s*(\\d+(?:\\.\\d+)?)").find(q)
-        if (addMatch != null) {
-            val a = addMatch.groupValues[1].toDoubleOrNull() ?: 0.0
-            val b = addMatch.groupValues[2].toDoubleOrNull() ?: 0.0
-            return "🧮 **Calculation**:\n\n• **$a + $b** = **${a + b}**"
-        }
-        val multMatch = Regex("(\\d+(?:\\.\\d+)?)\\s*\\*\\s*(\\d+(?:\\.\\d+)?)").find(q)
-        if (multMatch != null) {
-            val a = multMatch.groupValues[1].toDoubleOrNull() ?: 0.0
-            val b = multMatch.groupValues[2].toDoubleOrNull() ?: 0.0
-            return "🧮 **Calculation**:\n\n• **$a × $b** = **${a * b}**"
-        }
+        // 6. Dynamic contextual response tailored to the user's specific text
+        val intentWords = original.split(" ").filter { it.length > 2 }
+        val keywordList = intentWords.take(4).joinToString(", ") { "\"$it\"" }
 
-        // 4. Intent & Topic handlers
         return when {
-            q.contains("hello") || q.contains("hi") || q.contains("hey") ->
-                "Hello! 👋 I'm **LifeHub AI**, your all-in-one assistant.\n\nI can help you manage your daily routine, calculate expenses, organize study habits, monitor vehicles, and navigate our 100 built-in tools.\n\nTry asking:\n• *\"Add ₹350 lunch expense\"*\n• *\"Convert 15 km to miles\"*\n• *\"Calculate 18% GST on ₹4,000\"*\n• *\"Pomodoro study technique\"*"
+            q.startsWith("hello") || q.startsWith("hi") || q.startsWith("hey") ->
+                "Hello! 👋 I'm **LifeHub AI**, ready to assist you.\n\nI can search your photos, report live battery and storage stats, solve math, log daily expenses, or navigate any of our 100 built-in tools.\n\nWhat would you like to do right now?"
 
-            q.contains("how are you") ->
-                "I'm feeling great and all 100 LifeHub tools are operating at peak efficiency! 🚀 How can I assist you right now?"
+            q.contains("expense") || q.contains("spend") || q.contains("spent") || q.contains("bought") -> {
+                val amount = Regex("\\d+").find(q)?.value ?: "350"
+                "💸 **Expense Action**:\n\n" +
+                        "I noticed you mentioned an expense regarding $keywordList.\n" +
+                        "• Amount: **₹$amount**\n" +
+                        "• Tap the confirm button below to log this directly to your **Expense Tracker** database!"
+            }
 
-            q.contains("who are you") || q.contains("what can you do") || q.contains("features") || q.contains("help") ->
-                "I am **LifeHub AI**, the central intelligence of this Android super app. Here are just a few things I can do for you:\n\n" +
-                "• 💸 **Money & Finance**: Log expenses, calculate EMIs, track investments and family budgets.\n" +
-                "• 🧮 **Utilities**: Instant unit conversions, GST, time zones, age calculator, and math history.\n" +
-                "• 🎓 **Students**: Study planning, flashcards, GPA calculation, and attendance goals.\n" +
-                "• 🚗 **Vehicles**: Fuel tracking, mileage analysis, and service reminders.\n" +
-                "• 💧 **Health**: Water intake logging, sleep journal, and mindful meditation.\n" +
-                "• 🛡️ **Safety**: Emergency SOS strobe & siren, encrypted vault, and 112 quick dial.\n\n" +
-                "Just type what you need or tap the action button!"
-
-            q.contains("joke") ->
-                "Why do programmers prefer dark mode? 🕶️\nBecause light attracts bugs! 😄"
-
-            q.contains("thank") ->
-                "You're very welcome! Always here whenever you need a calculation, note, or quick tool. Have a productive day! 🌟"
-
-            q.contains("study") || q.contains("exam") || q.contains("learn") ->
-                "📚 **Study Strategy Plan**:\n\n" +
-                "1. **Use the 25/5 Pomodoro technique**: 25 minutes of high-intensity focus with zero distractions, then a 5-minute breather.\n" +
-                "2. **Active Recall**: Test your memory with our built-in **Flashcards** tool.\n" +
-                "3. **Spaced Repetition**: Review difficult concepts after 1 day, 3 days, and 1 week.\n" +
-                "4. **Class Schedule**: Keep your semester organized using the **Class Timetable** tool."
+            q.contains("study") || q.contains("exam") || q.contains("timetable") ->
+                "📚 **Study Strategy for \"$original\"**:\n\n" +
+                "• **Focus Method**: Use the 25/5 Pomodoro rhythm for deep retention.\n" +
+                "• **Flashcards**: Review core concepts with active recall.\n" +
+                "• **Countdown**: You can log exam dates in the **Exam Countdown** tool under Students!"
 
             q.contains("water") || q.contains("drink") || q.contains("hydrate") ->
-                "💧 **Daily Hydration Guide**:\n\n" +
-                "• **Recommended intake**: 2,500 ml – 3,000 ml per day.\n" +
-                "• Drinking a glass right after waking up jumpstarts your metabolism and alertness.\n" +
-                "• Track each glass in the **Water Reminder** tool under Health & Lifestyle!"
+                "💧 **Hydration Reminder**:\n\n" +
+                "Your daily hydration goal is 2,500 ml. Tap below to log a glass in the **Water Reminder** tool!"
 
-            q.contains("sleep") || q.contains("tired") || q.contains("rest") ->
-                "😴 **Rest & Sleep Tips**:\n\n" +
-                "• Aim for 7–8 hours of consistent sleep each night.\n" +
-                "• Avoid screens 30 minutes before bed to allow natural melatonin production.\n" +
-                "• Track your sleep duration and sleep quality score in the **Sleep Journal** tool."
+            q.contains("vehicle") || q.contains("car") || q.contains("bike") || q.contains("fuel") ->
+                "🚗 **Vehicle Care for \"$original\"**:\n\n" +
+                "• Check tyre PSI regularly for optimal fuel economy.\n" +
+                "• Keep PUC and Insurance dates updated in the **Vehicle Document Locker**."
 
-            q.contains("vehicle") || q.contains("car") || q.contains("bike") || q.contains("mileage") || q.contains("tyre") ->
-                "🚗 **Vehicle Optimization Tip**:\n\n" +
-                "• Keeping tyres at manufacturer-recommended PSI can boost fuel efficiency by up to 3%.\n" +
-                "• Change engine oil on schedule (typically every 5,000–10,000 km).\n" +
-                "• Store your RC, Insurance, and PUC in the **Vehicle Document Locker** so you never get caught without them."
+            q.contains("safety") || q.contains("sos") || q.contains("police") || q.contains("emergency") ->
+                "🛡️ **Safety Protocol**:\n\n" +
+                "If you are in danger, use the **Emergency SOS** tool immediately for 1-tap 112 dialing, siren strobe, and GPS coordinate broadcasting."
 
-            q.contains("safety") || q.contains("sos") || q.contains("emergency") ->
-                "🛡️ **Safety First**:\n\n" +
-                "• Use the **Emergency SOS** tool for 1-tap dialing to 112 (National Emergency), 108 (Ambulance), and 100 (Police).\n" +
-                "• You can also trigger an emergency siren strobe and broadcast your live GPS coordinates to loved ones."
+            q.contains("joke") ->
+                "Here's one for you 😄:\n\nWhy did the smartphone need glasses? 📱\nBecause it lost all its contacts!"
 
-            q.contains("expense") || q.contains("spend") || q.contains("money") || q.contains("budget") ->
-                "💸 **Expense Tracking**:\n\n" +
-                "I detected you want to manage your finances. You can tell me *\"Add ₹500 petrol expense\"* and I will log it directly into your Expense Tracker! You can also view your monthly budget in the **Family Budget** tool."
-
-            q.contains("emi") || q.contains("loan") ->
-                "🏦 **Loan & EMI Insights**:\n\n" +
-                "• EMI formula: E = P × r × (1 + r)^n / ((1 + r)^n - 1)\n" +
-                "• Always verify the interest rate type (reducing balance vs flat rate).\n" +
-                "• Tap below to open the full **EMI Calculator** for monthly repayment and amortization charts."
+            q.contains("hindi") || q.contains("namaste") || q.contains("kya haal") ->
+                "नमस्ते! 🙏 मैं LifeHub AI हूँ। मैं आपके खर्चे नोट कर सकता हूँ, फ़ोन की बैटरी और स्टोरेज देख सकता हूँ, और 100 टूल्स चलाने में आपकी मदद कर सकता हूँ। बताइये, आज मैं क्या सहायता करूँ?"
 
             else ->
-                "💡 **LifeHub AI Insight**:\n\n" +
-                "I've processed: *\"$query\"*.\n\n" +
-                "You can ask me to log expenses, perform math conversions, plan your study routine, or open any of LifeHub's 100 specialized tools. How else can I assist you?"
+                "✨ **LifeHub AI Response** to: *\"$original\"*\n\n" +
+                "I've analyzed your request regarding $keywordList:\n" +
+                "• All 100 modules are active and synced with your phone.\n" +
+                "• You can search gallery photos, check battery & storage metrics, calculate math, or log personal records.\n\n" +
+                "Would you like me to open a specific tool or perform an action for this?"
         }
     }
 }

@@ -1,11 +1,16 @@
 package com.example.ui.home
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.BatteryManager
+import android.os.Build
 import android.os.Environment
 import android.os.StatFs
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -30,6 +35,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.LifeHubApplication
 import com.example.domain.model.Category
@@ -38,6 +44,7 @@ import com.example.domain.model.ToolRegistry
 import com.example.ui.components.IconHelper
 import com.example.ui.components.QuickActionChip
 import com.example.ui.components.ToolCard
+import com.example.util.DeviceHardwareHelper
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -60,23 +67,33 @@ fun HomeScreen(
     val recentlyUsed by repository.getRecentlyUsedTools().collectAsStateWithLifecycle(initialValue = emptyList())
     val totalExpense by repository.getTotalExpenses().collectAsStateWithLifecycle(initialValue = 0.0)
 
-    var batteryPercent by remember { mutableStateOf(84) }
-    var isCharging by remember { mutableStateOf(false) }
-    var storageFreeGb by remember { mutableStateOf(42.8) }
+    var batteryInfo by remember { mutableStateOf(DeviceHardwareHelper.getBatteryInfo(context)) }
+    var storageInfo by remember { mutableStateOf(DeviceHardwareHelper.getStorageInfo()) }
+    var hasStoragePermission by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+            } else {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+            }
+        )
+    }
+
+    val storagePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions.values.any { it }
+        hasStoragePermission = granted
+        if (granted) {
+            storageInfo = DeviceHardwareHelper.getStorageInfo()
+        }
+    }
+
     var searchQuery by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
-        val batteryIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        batteryIntent?.let { intent ->
-            val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
-            val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
-            if (level >= 0 && scale > 0) batteryPercent = (level * 100) / scale
-            val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
-            isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
-        }
-        val path = Environment.getDataDirectory()
-        val stat = StatFs(path.path)
-        storageFreeGb = (stat.availableBlocksLong * stat.blockSizeLong) / (1024.0 * 1024.0 * 1024.0)
+        batteryInfo = DeviceHardwareHelper.getBatteryInfo(context)
+        storageInfo = DeviceHardwareHelper.getStorageInfo()
     }
 
     val greeting = remember {
@@ -346,19 +363,19 @@ fun HomeScreen(
                         Column(modifier = Modifier.padding(14.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    imageVector = if (isCharging) Icons.Default.BatteryChargingFull else Icons.Default.BatteryFull,
+                                    imageVector = if (batteryInfo.isCharging) Icons.Default.BatteryChargingFull else Icons.Default.BatteryFull,
                                     contentDescription = null,
-                                    tint = if (batteryPercent > 20) MaterialTheme.colorScheme.primary else Color(0xFFEF4444),
+                                    tint = if (batteryInfo.percentage > 20) MaterialTheme.colorScheme.primary else Color(0xFFEF4444),
                                     modifier = Modifier.size(22.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                if (isCharging) {
+                                if (batteryInfo.isCharging) {
                                     Text("⚡", style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                             Spacer(modifier = Modifier.height(6.dp))
-                            Text("$batteryPercent%", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
-                            Text("Battery", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("${batteryInfo.percentage}%", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+                            Text(if (batteryInfo.isCharging) "Charging" else "Battery", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
 
@@ -374,7 +391,7 @@ fun HomeScreen(
                         Column(modifier = Modifier.padding(14.dp)) {
                             Icon(Icons.Default.SdStorage, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(22.dp))
                             Spacer(modifier = Modifier.height(6.dp))
-                            Text("${"%.0f".format(storageFreeGb)} GB", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+                            Text("${String.format(Locale.getDefault(), "%.0f", storageInfo.freeGb)} GB", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
                             Text("Free Storage", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
@@ -393,6 +410,92 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.height(6.dp))
                             Text("₹${"%.0f".format(totalExpense ?: 0.0)}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
                             Text("Expenses", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+
+            // Storage Permission & Gallery Scanner Quick Panel
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable {
+                            if (hasStoragePermission) {
+                                onNavigateToAI()
+                            } else {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    storagePermissionLauncher.launch(arrayOf(Manifest.permission.READ_MEDIA_IMAGES))
+                                } else {
+                                    storagePermissionLauncher.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE))
+                                }
+                            }
+                        },
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (hasStoragePermission) MaterialTheme.colorScheme.surface
+                        else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (hasStoragePermission) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        else MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            modifier = Modifier.size(42.dp),
+                            shape = CircleShape,
+                            color = if (hasStoragePermission) Color(0xFF10B981).copy(alpha = 0.15f) else MaterialTheme.colorScheme.primary
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = if (hasStoragePermission) Icons.Default.CheckCircle else Icons.Default.LockOpen,
+                                    contentDescription = null,
+                                    tint = if (hasStoragePermission) Color(0xFF10B981) else MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (hasStoragePermission) "Gallery & Phone Storage Active" else "Allow Storage to Search Photos",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = if (hasStoragePermission) "Type \"find my photos in my gallery\" in AI Assistant"
+                                else "Grant storage permission to scan photos & view media telemetry",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        if (!hasStoragePermission) {
+                            Button(
+                                onClick = {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        storagePermissionLauncher.launch(arrayOf(Manifest.permission.READ_MEDIA_IMAGES))
+                                    } else {
+                                        storagePermissionLauncher.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE))
+                                    }
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Text("Allow", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
